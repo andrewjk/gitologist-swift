@@ -41,7 +41,7 @@ public func pull(at path: String, remote: String? = nil, branch: String? = nil, 
 		branchName = try await getCurrentBranch(at: gitDir.path)
 	}
 
-	_ = try await fetchFromRemote(at: path, remote: remoteName, options: options)
+	_ = try await fetchOrigin(at: path, remote: remoteName, options: options)
 
 	let remoteBranchPath = gitDir
 		.appendingPathComponent("refs")
