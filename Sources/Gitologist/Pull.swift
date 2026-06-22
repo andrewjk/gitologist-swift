@@ -1,14 +1,14 @@
 import CryptoKit
 import Foundation
 
-enum PullError: Error, LocalizedError, Equatable {
+public enum PullError: Error, LocalizedError, Equatable {
 	case notAGitRepository
 	case remoteBranchDoesNotExist(String)
 	case invalidCommitObject
 	case invalidBlobObject
 	case localChangesWouldBeOverwritten(String)
 
-	var errorDescription: String? {
+	public var errorDescription: String? {
 		switch self {
 		case .notAGitRepository:
 			return "Not a git repository"

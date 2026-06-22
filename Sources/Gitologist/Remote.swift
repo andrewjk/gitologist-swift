@@ -1,10 +1,10 @@
 import Foundation
 
-enum RemoteError: Error, LocalizedError {
+public enum RemoteError: Error, LocalizedError {
 	case notAGitRepository
 	case remoteAlreadyExists(String)
 
-	var errorDescription: String? {
+	public var errorDescription: String? {
 		switch self {
 		case .notAGitRepository:
 			return "Not a git repository"

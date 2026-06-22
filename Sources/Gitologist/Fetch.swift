@@ -10,13 +10,13 @@ struct RefInfo {
 	let sha: String
 }
 
-enum FetchError: Error, LocalizedError {
+public enum FetchError: Error, LocalizedError {
 	case notAGitRepository
 	case failedToDiscoverRefs(Int, String)
 	case failedToFetchPackfile(Int, String)
 	case invalidURL
 
-	var errorDescription: String? {
+	public var errorDescription: String? {
 		switch self {
 		case .notAGitRepository:
 			return "Not a git repository"
