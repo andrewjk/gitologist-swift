@@ -308,18 +308,68 @@ func updateBranch(at gitDir: String, branchName: String, commitSha: String) asyn
 	try "\(commitSha)\n".write(to: branchPath, atomically: true, encoding: .utf8)
 }
 
-func readObjectData(at gitDir: String, sha: String) async throws -> Data {
+final class PackfileCache {
+	private let cache = NSCache<NSString, NSArray>()
+
+	func get(_ key: String) -> [PackObject]? {
+		cache.object(forKey: key as NSString) as? [PackObject]
+	}
+
+	func set(_ key: String, objects: [PackObject]) {
+		cache.setObject(objects as NSArray, forKey: key as NSString)
+	}
+}
+
+func readObjectData(at gitDir: String, sha: String, cache: PackfileCache) async throws -> Data {
 	let objectPath = URL(fileURLWithPath: gitDir)
 		.appendingPathComponent("objects")
 		.appendingPathComponent(String(sha.prefix(2)))
 		.appendingPathComponent(String(sha.dropFirst(2)))
 
-	let compressedData = try Data(contentsOf: objectPath)
-	return try decompressData(compressedData)
+	if let compressedData = try? Data(contentsOf: objectPath) {
+		return try decompressData(compressedData)
+	}
+
+	let packDir = URL(fileURLWithPath: gitDir)
+		.appendingPathComponent("objects")
+		.appendingPathComponent("pack")
+
+	guard let packFiles = try? FileManager.default.contentsOfDirectory(
+		at: packDir,
+		includingPropertiesForKeys: nil
+	).filter({ $0.pathExtension == "pack" }) else {
+		throw GitError.invalidIndexFile("Object not found: \(sha)")
+	}
+
+	for packFile in packFiles {
+		let cacheKey = packFile.path
+		let objects: [PackObject]
+
+		if let cached = cache.get(cacheKey) {
+			objects = cached
+		} else {
+			guard let packData = try? Data(contentsOf: packFile),
+			      let parsed = try? parsePackfile(packData)
+			else {
+				continue
+			}
+			objects = parsed
+			cache.set(cacheKey, objects: objects)
+		}
+
+		for obj in objects {
+			if obj.sha == sha {
+				let header = "\(obj.type.rawValue) \(obj.content.count)\0"
+				return header.data(using: .utf8)! + obj.content
+			}
+		}
+	}
+
+	throw GitError.invalidIndexFile("Object not found: \(sha)")
 }
 
-func readObject(at gitDir: String, sha: String) async throws -> String {
-	let data = try await readObjectData(at: gitDir, sha: sha)
+func readObject(at gitDir: String, sha: String, cache: PackfileCache) async throws -> String {
+	let data = try await readObjectData(at: gitDir, sha: sha, cache: cache)
 
 	// Find the null byte separating header from content
 	guard let nullIndex = data.firstIndex(of: 0) else {
@@ -505,7 +555,7 @@ func parseTreeEntriesFromData(_ content: Data) throws -> [TreeEntry] {
 		let sha = shaData.map { String(format: "%02x", $0) }.joined()
 
 		// Determine type from mode
-		let type: TreeEntryType = mode == "040000" ? .tree : .blob
+		let type: TreeEntryType = (mode == "40000" || mode == "040000") ? .tree : .blob
 
 		entries.append(TreeEntry(
 			path: name,
