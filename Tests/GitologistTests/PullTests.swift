@@ -417,4 +417,47 @@ struct PullTests {
 
 		try? fileManager.removeItem(at: testDirPath)
 	}
+
+	@Test func unstashDoesNotRestoreFileDeletedOnRemote() async throws {
+		let testDirPath = testDir
+		try fileManager.createDirectory(at: testDirPath, withIntermediateDirectories: true)
+		try await initRepo(at: testDirPath.path)
+
+		try "a".write(to: testDirPath.appendingPathComponent("fileA.txt"), atomically: true, encoding: .utf8)
+		try "b".write(to: testDirPath.appendingPathComponent("fileB.txt"), atomically: true, encoding: .utf8)
+		try await add(at: testDirPath.path, files: ["fileA.txt", "fileB.txt"])
+		let firstSha = try await commit(at: testDirPath.path, message: "Initial commit")
+
+		try await push(at: testDirPath.path)
+
+		// Delete fileB on the remote and push.
+		try fileManager.removeItem(at: testDirPath.appendingPathComponent("fileB.txt"))
+		try await addAll(at: testDirPath.path)
+		_ = try await commit(at: testDirPath.path, message: "Delete fileB")
+		try await push(at: testDirPath.path)
+
+		// Simulate a second clone at the first commit with an uncommitted
+		// local edit to fileA, then refresh like RefreshManager does:
+		// stash -> pull -> unstash.
+		let localBranchPath = testDirPath.appendingPathComponent(".git").appendingPathComponent("refs").appendingPathComponent("heads").appendingPathComponent("main")
+		try firstSha.write(to: localBranchPath, atomically: true, encoding: .utf8)
+		try "a".write(to: testDirPath.appendingPathComponent("fileA.txt"), atomically: true, encoding: .utf8)
+		try "b".write(to: testDirPath.appendingPathComponent("fileB.txt"), atomically: true, encoding: .utf8)
+		try await add(at: testDirPath.path, files: ["fileA.txt", "fileB.txt"])
+		try "a-modified".write(to: testDirPath.appendingPathComponent("fileA.txt"), atomically: true, encoding: .utf8)
+
+		_ = try await stash(at: testDirPath.path)
+		try await pull(at: testDirPath.path)
+		try await unstash(at: testDirPath.path)
+
+		// fileA's local edit must be restored...
+		let contentA = try String(contentsOf: testDirPath.appendingPathComponent("fileA.txt"), encoding: .utf8)
+		#expect(contentA == "a-modified")
+
+		// ...but fileB was deleted on the remote and must NOT come back.
+		#expect(!fileManager.fileExists(atPath: testDirPath.appendingPathComponent("fileB.txt").path),
+		        "fileB deleted on remote was restored by unstash")
+
+		try? fileManager.removeItem(at: testDirPath)
+	}
 }
